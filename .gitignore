@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# Runtime state: task history lives in Postgres, but conversation memory,
+# checkpoints, and any cached auth token land here.
+.orchestration/
+
+# Subagent scratch space
+workspace/
+
+# Local secrets — never commit
+.env
+*.token
+token.json
+
+# Local editor/tool config
+.claude/settings.local.json
+
+# macOS
+.DS_Store

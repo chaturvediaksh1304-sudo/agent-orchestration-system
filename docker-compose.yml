@@ -1,0 +1,70 @@
+# Self-hosted stack: `docker compose up -d`, then run the CLI via `compose run cli`.
+#
+# Healthchecks are not decoration here: the worker and CLI both fail confusingly
+# if they start before Postgres accepts connections, so they wait for it.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: orchestration
+      POSTGRES_PASSWORD: orchestration
+      POSTGRES_DB: orchestration
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orchestration"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    build: .
+    entrypoint: ["celery", "-A", "agent_orchestration.queue", "worker"]
+    command: ["--concurrency", "4", "--loglevel", "info"]
+    environment: &app_env
+      DATABASE_URL: postgresql://orchestration:orchestration@postgres:5432/orchestration
+      CELERY_BROKER_URL: redis://redis:6379/0
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID:-}
+    volumes:
+      - workspace:/app/workspace
+      - orchestration_state:/app/.orchestration
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  cli:
+    build: .
+    environment: *app_env
+    volumes:
+      - workspace:/app/workspace
+      - orchestration_state:/app/.orchestration
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Not a long-running service: start it on demand with
+    #   docker compose run --rm cli "your goal here"
+    profiles: ["cli"]
+
+volumes:
+  postgres_data:
+  workspace:
+  orchestration_state:
