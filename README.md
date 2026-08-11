@@ -176,3 +176,7 @@ Exit codes: `0` completed, `1` usage error, `2` aborted, `3` awaiting a human.
 Both modes produce the same `EscalationDecision`, so the retry/skip/abort logic
 is shared rather than duplicated. A guided retry that fails again finishes the
 run with the failure recorded — it does not bounce back to the operator forever.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
