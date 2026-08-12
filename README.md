@@ -1,5 +1,8 @@
 # Agent Orchestration System
 
+[![CI](https://github.com/chaturvediaksh1304-sudo/agent-orchestration-system/actions/workflows/ci.yml/badge.svg)](https://github.com/chaturvediaksh1304-sudo/agent-orchestration-system/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A multi-agent orchestration system: a supervisor decomposes a goal, designs a
 subagent for each subtask at runtime, dispatches them with tool use, and
 aggregates their results.
@@ -176,6 +179,11 @@ Exit codes: `0` completed, `1` usage error, `2` aborted, `3` awaiting a human.
 Both modes produce the same `EscalationDecision`, so the retry/skip/abort logic
 is shared rather than duplicated. A guided retry that fails again finishes the
 run with the failure recorded — it does not bounce back to the operator forever.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) — in particular the conventions the
+design depends on, which a well-meant refactor can quietly break.
 
 ## License
 

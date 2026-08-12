@@ -196,6 +196,20 @@ Nothing is mid-implementation. Two things need Aksh's credentials to finish veri
 - No `python-dotenv`, no `typer`, no ORM — stdlib `argparse`, `sqlite3`, and env vars cover it.
 - Repo is **not** a git repository. No `git init` run (not requested); no `git push` per Rules.md.
 
+## Post-phase work (not part of Phases.md)
+- **Published to GitHub** as `chaturvediaksh1304-sudo/agent-orchestration-system`, public, MIT.
+- **CI** (`.github/workflows/ci.yml`) runs three jobs on push and PR: offline suite,
+  integration suite against real Postgres + Redis service containers, and a Docker build that
+  starts the CLI in the built image. **All three verified green** on the first run — none of
+  them needs an API key.
+- **Fixed while adding CI:** the integration test worker subprocess was launched with a
+  stripped environment, so `CELERY_BROKER_URL` never reached it and the worker silently used
+  the default broker. Only harmless locally because the default matched. Now inherits
+  `os.environ`.
+- `CONTRIBUTING.md` records the load-bearing conventions (single subagent construction site,
+  SQL confined to `store.py`, repair as the only execution path, failure returned not raised,
+  side effects before `interrupt()` running twice) so a refactor doesn't quietly undo them.
+
 ## Environment notes
 - Redis runs as a Docker container: `docker run -d --name orchestration-redis -p 6379:6379
   redis:7-alpine`. **Docker Desktop must be running** — it was down at the start of Phase 3.
