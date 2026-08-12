@@ -10,6 +10,7 @@ so this proves the queue without needing an API key. The probe reports its pid,
 so the test distinguishes real parallelism from a fast sequential run.
 """
 
+import os
 import subprocess
 import sys
 import time
@@ -50,7 +51,10 @@ def worker(broker):
             "--without-gossip", "--without-mingle", "--without-heartbeat",
         ],
         cwd=TESTS_DIR,
-        env={"PYTHONPATH": str(TESTS_DIR), "PATH": "/usr/bin:/bin"},
+        # Inherit the environment: a stripped one drops CELERY_BROKER_URL, so the
+        # worker would silently fall back to the default broker while the test
+        # enqueues to the configured one.
+        env={**os.environ, "PYTHONPATH": str(TESTS_DIR)},
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )

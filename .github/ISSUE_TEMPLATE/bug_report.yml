@@ -1,0 +1,57 @@
+name: Bug report
+description: Something behaves differently than documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: `Memory.md` records several deliberate tradeoffs and
+        known-open gaps. Worth a look in case the behaviour is documented.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The exact command or test, and its output.
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: suite
+    attributes:
+      label: Which suite does this affect?
+      options:
+        - Offline suite (pytest)
+        - Integration suite (pytest -m integration)
+        - Live test (pytest -m live)
+        - Running the CLI
+        - Docker / docker compose
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: "`python --version`. The project pins to 3.9 — see Memory.md for why."
+      placeholder: "3.9.6"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: no-secrets
+    attributes:
+      label: Before submitting
+      options:
+        - label: I have checked that my logs and output contain no API keys or tokens.
+          required: true

@@ -1,0 +1,37 @@
+name: Feature request
+description: Propose a change or addition
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project was built to a fixed spec (`PRD.md`, `Phases.md`), and some
+        things are out of scope on purpose — a UI, for instance. `Memory.md`
+        lists the gaps that are open deliberately.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The situation you hit, not the solution you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you change?
+    validations:
+      required: true
+
+  - type: textarea
+    id: invariants
+    attributes:
+      label: Does this touch any of the load-bearing conventions?
+      description: >
+        CONTRIBUTING.md lists a few properties the design depends on — the single
+        subagent construction site, SQL confined to store.py, repair as the only
+        execution path, failure returned rather than raised. If your proposal
+        changes one, say which and why it is worth it.
+    validations:
+      required: false
