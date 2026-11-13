@@ -97,6 +97,55 @@ def paired(data: Dict[str, Dict[str, Dict]]) -> Dict[str, List[Dict]]:
     return {"recovered": recovered, "regressed": regressed, "both_failed": both}
 
 
+def mcnemar_p(b: int, c: int) -> Optional[float]:
+    """Exact two-sided McNemar test on the discordant pairs of a paired comparison.
+
+    b and c are the tasks where only one arm had the outcome. With no
+    discordant pairs there is nothing to test.
+    """
+    import math
+
+    n = b + c
+    if n == 0:
+        return None
+    return min(1.0, 2 * sum(math.comb(n, i) for i in range(min(b, c) + 1)) / 2 ** n)
+
+
+def correctness_pairs(data: Dict[str, Dict[str, Dict]]) -> Dict[str, int]:
+    shared = set(data["baseline"]) & set(data["full"])
+    is_correct = lambda arm, t: data[arm][t]["outcome"] == CORRECT
+    return {
+        "both": sum(1 for t in shared if is_correct("baseline", t) and is_correct("full", t)),
+        "baseline_only": sum(1 for t in shared if is_correct("baseline", t) and not is_correct("full", t)),
+        "full_only": sum(1 for t in shared if is_correct("full", t) and not is_correct("baseline", t)),
+    }
+
+
+# What each failure sub-cause means mechanically, for the report's prose.
+CAUSE_EXPLAINED = {
+    "timeout": "the run hit the 20-minute limit",
+    "subtask_timeout": "a subagent ran past the supervisor's hard-coded 300 s wait for its Celery result; that wait raises and ends the whole run, although the subagent had not failed",
+    "empty_decomposition": "the supervisor's decompose call returned an empty subtask list (about 12 output tokens, the size of an empty list) and `decompose_goal` raises on an empty plan; decompose has no repair",
+    "empty_output": "the run finished with an empty final message",
+    "max_steps": "an agent hit LangGraph's 25-step recursion limit",
+    "retries_exhausted": "the repair loop used all its attempts and the unattended escalation aborted the run",
+    "parse_error": "a model response could not be parsed into the expected structure",
+    "model_api_error": "a call to the model server failed",
+    "infrastructure_error": "Postgres, Redis, or ChromaDB raised",
+    "crash": "an unclassified exception ended the run",
+}
+
+
+def repeat_agreement(data: Dict[str, Dict[str, Dict]], repeat: Dict[str, Dict[str, Dict]]) -> Dict[str, Dict]:
+    """How often the same arm gave the same outcome on a task run twice."""
+    agreement = {}
+    for arm in ARMS:
+        shared = sorted(set(data[arm]) & set(repeat.get(arm, {})))
+        flips = [t for t in shared if data[arm][t]["outcome"] != repeat[arm][t]["outcome"]]
+        agreement[arm] = {"tasks": len(shared), "flipped": len(flips), "flipped_ids": flips}
+    return agreement
+
+
 def table(data: Dict[str, Dict[str, Dict]]) -> str:
     lines = [
         "| Arm | Level | Tasks | Ran | Correct | Accuracy | Unrecoverable | Wrong answer | Unsupported | Avg latency (ran) |",
@@ -209,7 +258,9 @@ def _describe_recovery(row: Dict) -> str:
     return "; ".join(bits)
 
 
-def results_markdown(data: Dict[str, Dict[str, Dict]], subset_note: str = "") -> str:
+def results_markdown(
+    data: Dict[str, Dict[str, Dict]], subset_note: str = "", repeat: Optional[Dict[str, Dict[str, Dict]]] = None
+) -> str:
     from bench import config
 
     env = environment()
@@ -227,7 +278,8 @@ def results_markdown(data: Dict[str, Dict[str, Dict]], subset_note: str = "") ->
         "Two arms on the same model, tools, prompts, and limits. **Baseline** is one ReAct "
         "agent. **Full** is the system as shipped: supervisor, runtime-authored subagents, "
         "Celery dispatch, the diagnose-and-retry loop, and PostgreSQL + ChromaDB memory. "
-        "Every number below is computed by `bench/report.py` from per-task result files.\n"
+        "Every table and count below is computed by `bench/report.py` from per-task result files. "
+        "Paragraphs marked *Checked by hand* come from replaying individual tasks.\n"
     )
 
     add("## 1. Setup\n")
@@ -276,6 +328,23 @@ def results_markdown(data: Dict[str, Dict[str, Dict]], subset_note: str = "") ->
         f"{len(pairs['regressed'])} tasks failed only in the full system, and "
         f"{len(pairs['both_failed'])} failed in both.\n"
     )
+    p_fail = mcnemar_p(len(pairs["recovered"]), len(pairs["regressed"]))
+    cp = correctness_pairs(data)
+    p_correct = mcnemar_p(cp["baseline_only"], cp["full_only"])
+
+    def fmt_p(value: Optional[float]) -> str:
+        return "n/a" if value is None else f"{value:.3f}"
+
+    add(
+        "**Statistical significance.** An exact McNemar test on the paired tasks gives "
+        f"p = {fmt_p(p_fail)} for the difference in unrecoverable failures "
+        f"({len(pairs['recovered'])} vs {len(pairs['regressed'])} discordant tasks), and "
+        f"p = {fmt_p(p_correct)} for the difference in correct answers "
+        f"(correct only in baseline {cp['baseline_only']}, only in full {cp['full_only']}, in both {cp['both']}). "
+        + ("Neither reaches p < 0.05" if all(v is None or v >= 0.05 for v in (p_fail, p_correct))
+           else "At least one reaches p < 0.05")
+        + ", so the direction is suggestive, not established, at this sample size.\n"
+    )
 
     add("## 4. Failure breakdown\n")
     causes = sorted(set(b["sub_causes"]) | set(f["sub_causes"]))
@@ -313,20 +382,27 @@ def results_markdown(data: Dict[str, Dict[str, Dict]], subset_note: str = "") ->
     add("## 6. Biggest fix\n")
     if pairs["recovered"]:
         cause, count = Counter(r["baseline"]["sub_cause"] for r in pairs["recovered"]).most_common(1)[0]
-        example = next(r for r in pairs["recovered"] if r["baseline"]["sub_cause"] == cause)
+        outcomes = Counter(r["full"]["outcome"] for r in pairs["recovered"])
+        with_retry = sum(1 for r in pairs["recovered"] if (r["full"].get("retries_triggered") or 0) > 0)
+        became_correct = outcomes.get(CORRECT, 0)
         add(
             f"The most common baseline failure the full system did not repeat was **{cause}** "
-            f"({count} of {len(pairs['recovered'])} recovered tasks). Example: task "
-            f"`{example['task_id']}` (level {example['level']}). The baseline ended in `{cause}`; "
-            f"the full system finished with outcome `{example['full']['outcome']}`. "
-            f"In that run {_describe_recovery(example)}.\n"
+            f"({count} of {len(pairs['recovered'])} such tasks): {CAUSE_EXPLAINED.get(cause, cause)}. "
+            f"Of the {len(pairs['recovered'])} tasks, **{became_correct} became correct**; the full system's "
+            "outcomes were " + ", ".join(f"{k} {v}" for k, v in outcomes.most_common()) + ". "
+            f"A retry fired on {with_retry} of them."
         )
-        with_retry = sum(1 for r in pairs["recovered"] if (r["full"].get("retries_triggered") or 0) > 0)
-        add(
-            f"Of the {len(pairs['recovered'])} recovered tasks, {with_retry} involved a retry. "
-            "Where no retry fired, the recovery came from decomposition (shorter per-agent "
-            "tool loops), not from the repair loop.\n"
-        )
+        if became_correct == 0:
+            add(
+                "\nSo the full system turned these failures into finished runs, not into right answers. "
+                + ("None involved a retry, so the repair loop played no part. What differed was the prompt: "
+                   "the supervisor's decomposition gave each agent a different task description, and with "
+                   "those prompts these runs finished instead of stalling.\n" if with_retry == 0 else "\n")
+            )
+        else:
+            add("")
+        example = next(r for r in pairs["recovered"] if r["baseline"]["sub_cause"] == cause)
+        add(f"Example task: `{example['task_id']}` (level {example['level']}). In the full run, {_describe_recovery(example)}.\n")
     else:
         add("There is none to report: no task failed unrecoverably in the baseline and then avoided that in the full system.\n")
 
@@ -337,9 +413,21 @@ def results_markdown(data: Dict[str, Dict[str, Dict]], subset_note: str = "") ->
             + ", ".join(f"{k} ({v})" for k, v in both.most_common()) + ".\n")
     if pairs["regressed"]:
         regressed = Counter(r["full"]["sub_cause"] for r in pairs["regressed"])
-        add(f"{len(pairs['regressed'])} task(s) failed **only** in the full system: "
-            + ", ".join(f"{k} ({v})" for k, v in regressed.most_common())
-            + ". Examples: " + ", ".join(f"`{r['task_id']}`" for r in pairs["regressed"][:3]) + ".\n")
+        add(f"{len(pairs['regressed'])} task(s) failed **only** in the full system:\n")
+        for cause_name, n in regressed.most_common():
+            ids = [r["task_id"] for r in pairs["regressed"] if r["full"]["sub_cause"] == cause_name][:2]
+            add(f"- **{cause_name}** ({n}): {CAUSE_EXPLAINED.get(cause_name, cause_name)}. "
+                f"Examples: " + ", ".join(f"`{i}`" for i in ids) + ".")
+        add("")
+    full_ran = [r for r in data["full"].values() if r["outcome"] != UNSUPPORTED]
+    retried = sum(1 for r in full_ran if (r.get("retries_triggered") or 0) > 0)
+    failed_subtasks = sum(1 for r in full_ran for st in (r.get("subtasks") or []) if st.get("ok") is False)
+    add(
+        f"**The diagnose-and-retry loop fired on {retried} of {len(full_ran)} tasks**, and "
+        f"{failed_subtasks} subtask(s) were ever marked failed. It only runs when a subagent raises an "
+        "exception, and in this run none did: every full-arm failure happened in the supervisor "
+        "itself (an empty plan, or the 300 s wait), which the loop does not cover.\n"
+    )
     if not pairs["both_failed"] and not pairs["regressed"]:
         add("No task failed unrecoverably in the full system.\n")
     add(
@@ -350,7 +438,20 @@ def results_markdown(data: Dict[str, Dict[str, Dict]], subset_note: str = "") ->
 
     add("## 8. Limitations\n")
     add(f"- **Sample size.** {n} tasks, of which {ran} ran. Per-level rows, level 3 especially, are too small to compare.")
-    add("- **One run per task.** No variance estimate. Web search results change over time, so a rerun will not reproduce every outcome even at temperature 0.")
+    agreement = repeat_agreement(data, repeat) if repeat else None
+    if agreement and agreement["baseline"]["tasks"]:
+        parts = [
+            f"{arm} {a['flipped']} of {a['tasks']}" for arm, a in agreement.items() if a["tasks"]
+        ]
+        add(
+            "- **One run per task.** The 15 pilot tasks were run again here, a day apart, with "
+            "identical settings. Outcomes changed on " + ", ".join(parts) + " tasks. Search "
+            "results drift and the full arm's subtasks finish in a different order each run, so "
+            "temperature 0 is not deterministic end to end. Differences of a few tasks between the "
+            "arms are inside this noise."
+        )
+    else:
+        add("- **One run per task.** No variance estimate. Web search results change over time, so a rerun will not reproduce every outcome even at temperature 0.")
     add("- **Validation split only.** These tasks are public; nothing here says how either arm does on the held-out test split.")
     add("- **Small local model.** A 7.6B model at 4-bit quantization. Absolute accuracy is far below published GAIA results and should not be compared with them.")
     add(f"- **Narrow tools.** {n - ran} tasks could not be attempted at all. Search returns snippets and cannot open a page, which most GAIA tasks need.")
@@ -388,11 +489,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--project", type=int, default=None, help="Project a full run of this many tasks.")
     parser.add_argument("--write", default=None, help="Write the full report to this file.")
     parser.add_argument("--subset-note", default="", help="Appended to the task count in the setup table.")
+    parser.add_argument("--repeat-dir", default=None, help="An earlier run of some of the same tasks, to measure run-to-run agreement.")
     args = parser.parse_args(argv)
     data = load(Path(args.results_dir))
     print(summary(data, project=args.project))
     if args.write:
-        Path(args.write).write_text(results_markdown(data, args.subset_note))
+        repeat = load(Path(args.repeat_dir)) if args.repeat_dir else None
+        Path(args.write).write_text(results_markdown(data, args.subset_note, repeat))
         print(f"wrote {args.write}")
     return 0
 
