@@ -119,8 +119,9 @@ VIRTUAL_ENV=~/.venvs/agent-orchestration uv pip install -e ".[dev]" pandas pyarr
 ~/.venvs/agent-orchestration/bin/python -m pytest                      # harness and system tests
 ~/.venvs/agent-orchestration/bin/python -m bench.run --set smoke --run-tag smoke
 ~/.venvs/agent-orchestration/bin/python -m bench.run --set pilot --run-tag pilot
-caffeinate -i ~/.venvs/agent-orchestration/bin/python -m bench.run --set all --run-tag full
-~/.venvs/agent-orchestration/bin/python -m bench.report results --write results.md
+# caffeinate cannot stop sleep on lid-close; keep the Mac plugged in with the lid open
+caffeinate -dims ~/.venvs/agent-orchestration/bin/python -m bench.run --set all --run-tag full
+~/.venvs/agent-orchestration/bin/python -m bench.report results --repeat-dir results-pilot --write results.md
 ```
 
 The run is resumable: rerun the same command and finished tasks are skipped. Per-task result files contain ground-truth answers and are gitignored.

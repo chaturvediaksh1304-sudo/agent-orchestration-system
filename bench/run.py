@@ -2,7 +2,7 @@
 
     python -m bench.run --set smoke --run-tag smoke
     python -m bench.run --set pilot --run-tag pilot
-    caffeinate -i python -m bench.run --set all --run-tag full
+    caffeinate -dims python -m bench.run --set all --run-tag full
 
 Resumable: each result is written to <results>/<arm>/<task_id>.json the moment
 it exists, and a task with a result file is skipped on restart.
