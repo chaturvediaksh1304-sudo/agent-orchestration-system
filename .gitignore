@@ -22,3 +22,14 @@ token.json
 
 # macOS
 .DS_Store
+
+# GAIA benchmark: per-task results hold ground-truth answers, which GAIA's
+# terms forbid resharing. Only the harness and the aggregate report are tracked.
+results/
+results-*/
+*.parquet
+gaia-test/
+bench-state/
+
+# Session handoff notes (personal context, not project docs)
+bench/CONTEXT.md

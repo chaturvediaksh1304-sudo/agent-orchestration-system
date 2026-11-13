@@ -93,3 +93,32 @@ def test_workspace_is_created_if_absent(tmp_path):
     build_tools(tmp_path / "fresh")
 
     assert (tmp_path / "fresh").is_dir()
+
+
+class _FakeSearch:
+    """Stands in for the search client so the default suite stays offline."""
+
+    results = [{"title": "Apollo 11", "href": "https://example.test/apollo", "body": "Landed in 1969."}]
+
+    def text(self, query, max_results):
+        return self.results[:max_results]
+
+
+def test_web_search_returns_title_url_and_snippet(tools, monkeypatch):
+    import ddgs
+
+    monkeypatch.setattr(ddgs, "DDGS", _FakeSearch)
+
+    found = tools["web_search"].invoke({"query": "apollo 11"})
+
+    assert "Apollo 11" in found
+    assert "https://example.test/apollo" in found
+    assert "Landed in 1969." in found
+
+
+def test_web_search_with_no_results_says_so(tools, monkeypatch):
+    import ddgs
+
+    monkeypatch.setattr(ddgs, "DDGS", type("Empty", (_FakeSearch,), {"results": []}))
+
+    assert tools["web_search"].invoke({"query": "nothing matches"}) == "No results."

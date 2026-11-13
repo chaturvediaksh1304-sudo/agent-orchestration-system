@@ -51,4 +51,16 @@ def build_tools(workspace: Path) -> Dict[str, BaseTool]:
             sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
         )
 
-    return {t.name: t for t in (read_file, write_file, list_files)}
+    @tool
+    def web_search(query: str) -> str:
+        """Search the web and return the top results as title, URL, and snippet."""
+        # Imported lazily so nothing loads a network client until a search runs.
+        from ddgs import DDGS
+
+        results = DDGS().text(query, max_results=5)
+        return "\n\n".join(
+            f"{r.get('title', '')}\n{r.get('href', '')}\n{r.get('body', '')}"
+            for r in results
+        ) or "No results."
+
+    return {t.name: t for t in (read_file, write_file, list_files, web_search)}

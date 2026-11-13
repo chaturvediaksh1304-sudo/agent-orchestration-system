@@ -18,6 +18,8 @@ dependencies = [
     "langgraph-checkpoint-sqlite==2.0.11",
     # Already present via langsmith; declared because auth.py imports it directly.
     "requests>=2.32",
+    # No-key web search for the web_search tool (9.8.0 is the last line on py3.9).
+    "ddgs==9.8.0",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +37,8 @@ include = ["agent_orchestration*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The benchmark harness lives in bench/, outside the installed package.
+pythonpath = ["."]
 markers = [
     "live: hits a real model API (excluded by default; run with -m live)",
     "integration: needs a running Redis broker and Celery workers (run with -m integration)",
